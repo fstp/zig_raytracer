@@ -31,11 +31,27 @@ const Color = extern union {
     }
 };
 
+fn hit_sphere(center: Vec3, radius: f32, ray: Ray) bool {
+    const oc = center.sub(ray.origin);
+    const a = Vec3.dot(ray.dir, ray.dir);
+    const b = -2.0 * Vec3.dot(ray.dir, oc);
+    const c = Vec3.dot(oc, oc) - radius * radius;
+    const discriminant = b * b - 4 * a * c;
+    // Discriminant -> 0  => No roots, no intersection
+    //              -> 1  => Exactly one intersection
+    //              -> >1 => One or more intersections (passing through the sphere)
+    return (discriminant >= 0);
+}
+
 fn ray_color(ray: Ray) Color {
-    // Lerp between white and blue depending on y-direction
+    // Sphere - Always red
+    if (hit_sphere(Vec3.init(0, 0, -1), 0.5, ray))
+        return Color.init(1, 0, 0);
+
+    // Sky - lerp between white and blue depending on y-direction
     const unit_direction = Vec3.unit_vector(ray.dir);
     const a = 0.5 * (unit_direction.y + 1.0);
-    const c1 = Color.init(1.0, 1.0, 1.0).v.mulScalar(1.0-a);
+    const c1 = Color.init(1.0, 1.0, 1.0).v.mulScalar(1.0 - a);
     const c2 = Color.init(0.5, 0.7, 1.0).v.mulScalar(a);
     return Color.from_vec(c1.add(c2));
 }
