@@ -36,19 +36,23 @@ const Color = extern union {
     }
 };
 
+// We are utilizing a trick where 'b' in the quadratic equation (to find roots)
+// is substituted for '-2h'. That enables us to factor out some parts and simplify
+// the calculation of both b and the discriminant.
 fn hit_sphere(center: Vec3, radius: f32, ray: Ray) f32 {
     const oc = center.sub(ray.origin);
-    const a = Vec3.dot(ray.dir, ray.dir);
-    const b = -2.0 * Vec3.dot(ray.dir, oc);
-    const c = Vec3.dot(oc, oc) - radius * radius;
-    const discriminant = b * b - 4 * a * c;
+    const a = ray.dir.lengthSq();
+    const h = ray.dir.dot(oc);
+    const c = oc.lengthSq() - radius*radius;
+    const discriminant = h*h - a*c;
+
     // Discriminant -> 0  => No roots, no intersection
     //              -> 1  => Exactly one intersection
     //              -> >1 => One or more intersections (passing through the sphere)
     if (discriminant < 0) {
         return -1.0;
     } else {
-        return (-b - math.sqrt(discriminant)) / (2.0 * a);
+        return (h - math.sqrt(discriminant)) / a;
     }
 }
 
