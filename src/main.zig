@@ -1,5 +1,6 @@
 const vec = @import("vec");
 const std = @import("std");
+const math = std.math;
 
 const Io = std.Io;
 const Vec3 = vec.Vec3;
@@ -7,6 +8,10 @@ const Vec3 = vec.Vec3;
 const Ray = struct {
     origin: Vec3,
     dir: Vec3,
+
+    pub inline fn at(self: Ray, t: f32) Vec3 {
+        return self.origin.add(self.dir.mulScalar(t));
+    }
 };
 
 /// A simple RGB color.
@@ -22,16 +27,16 @@ const Color = extern union {
         b: f32,
     },
 
-    pub fn init(r: f32, g: f32, b: f32) Color {
+    pub inline fn init(r: f32, g: f32, b: f32) Color {
         return .{ .channels = .{ .r = r, .g = g, .b = b } };
     }
 
-    pub fn from_vec(v: Vec3) Color {
+    pub inline fn from_vec(v: Vec3) Color {
         return .{ .v = v };
     }
 };
 
-fn hit_sphere(center: Vec3, radius: f32, ray: Ray) bool {
+fn hit_sphere(center: Vec3, radius: f32, ray: Ray) f32 {
     const oc = center.sub(ray.origin);
     const a = Vec3.dot(ray.dir, ray.dir);
     const b = -2.0 * Vec3.dot(ray.dir, oc);
@@ -40,13 +45,20 @@ fn hit_sphere(center: Vec3, radius: f32, ray: Ray) bool {
     // Discriminant -> 0  => No roots, no intersection
     //              -> 1  => Exactly one intersection
     //              -> >1 => One or more intersections (passing through the sphere)
-    return (discriminant >= 0);
+    if (discriminant < 0) {
+        return -1.0;
+    } else {
+        return (-b - math.sqrt(discriminant)) / (2.0 * a);
+    }
 }
 
 fn ray_color(ray: Ray) Color {
-    // Sphere - Always red
-    if (hit_sphere(Vec3.init(0, 0, -1), 0.5, ray))
-        return Color.init(1, 0, 0);
+    // Sphere - Color according to normal (x=red, y=green, z=blue)
+    const t = hit_sphere(Vec3.init(0, 0, -1), 0.5, ray);
+    if (t > 0.0) {
+        const normal = Vec3.unit_vector(ray.at(t).sub(Vec3.init(0, 0, -1)));
+        return Color.from_vec(normal.addScalar(1).mulScalar(0.5));
+    }
 
     // Sky - lerp between white and blue depending on y-direction
     const unit_direction = Vec3.unit_vector(ray.dir);
