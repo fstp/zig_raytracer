@@ -36,6 +36,48 @@ const Color = extern union {
     }
 };
 
+const HitRecord = struct {
+    p: Vec3,
+    normal: Vec3,
+    t: f32,
+};
+
+const Sphere = struct {
+    center: Vec3,
+    radius: f32,
+
+    pub fn hit(self: Sphere, ray: Ray, ray_tmin: f32, ray_tmax: f32) ?HitRecord {
+        const oc = self.center.sub(ray.origin);
+        const a = ray.dir.lengthSq();
+        const h = ray.dir.dot(oc);
+        const c = oc.lengthSq() - self.radius*self.radius;
+        const discriminant = h*h - a*c;
+
+        if (discriminant < 0)
+            return null;
+
+        const sqrtd = @sqrt(discriminant);
+
+        var root = (h - sqrtd) / a;
+        if (root <= ray_tmin or ray_tmax <= root) {
+            // Maybe the other root is within limits
+            root = (h + sqrtd) / a;
+            if (root <= ray_tmin or ray_tmax <= root) {
+                // Nope, no intersection
+                return null;
+            }
+        }
+
+        const p = ray.at(root);
+
+        return HitRecord {
+            .t = root,
+            .p = p,
+            .normal = p.sub(self.center).divScalar(self.radius),
+        };
+    }
+};
+
 // We are utilizing a trick where 'b' in the quadratic equation (to find roots)
 // is substituted for '-2h'. That enables us to factor out some parts and simplify
 // the calculation of both b and the discriminant.
@@ -52,16 +94,19 @@ fn hit_sphere(center: Vec3, radius: f32, ray: Ray) f32 {
     if (discriminant < 0) {
         return -1.0;
     } else {
-        return (h - math.sqrt(discriminant)) / a;
+        return (h - @sqrt(discriminant)) / a; // Root
     }
 }
 
 fn ray_color(ray: Ray) Color {
+    const sphere = Sphere {
+        .radius = 0.5,
+        .center = Vec3.init(0, 0, -1),
+    };
+
     // Sphere - Color according to normal (x=red, y=green, z=blue)
-    const t = hit_sphere(Vec3.init(0, 0, -1), 0.5, ray);
-    if (t > 0.0) {
-        const normal = Vec3.unit_vector(ray.at(t).sub(Vec3.init(0, 0, -1)));
-        return Color.from_vec(normal.addScalar(1).mulScalar(0.5));
+    if (sphere.hit(ray, 0, math.inf(f32))) |hr| {
+        return Color.from_vec(hr.normal.addScalar(1).mulScalar(0.5));
     }
 
     // Sky - lerp between white and blue depending on y-direction
