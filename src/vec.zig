@@ -32,7 +32,7 @@ pub const Vec3 = extern struct {
     }
 
     // --- SIMD Interop ---
-    
+
     /// Converts to a built-in SIMD vector for fast hardware-accelerated math
     pub inline fn toSimd(self: Self) @Vector(3, f32) {
         return .{ self.x, self.y, self.z };
@@ -147,13 +147,21 @@ pub const Vec3 = extern struct {
         if (len == 0.0) return self;
         return self.mulScalar(1.0 / len);
     }
+
+    pub inline fn neg(self: Self) Self {
+        return Vec3{
+            .x = -self.x,
+            .y = -self.y,
+            .z = -self.z,
+        };
+    }
 };
 
 // --- Tests ---
 
 test "Vec3 vector-scalar operations" {
     const v = Vec3.init(1.0, 2.0, 3.0);
-    
+
     // Addition
     const v_add = v.addScalar(5.0);
     try std.testing.expectEqual(@as(f32, 6.0), v_add.x);
@@ -181,22 +189,22 @@ test "Vec3 vector-scalar operations" {
 
 test "Vec3 mutating vector-scalar operations" {
     var v = Vec3.init(1.0, 2.0, 3.0);
-    
+
     v.addScalarMut(5.0);
     try std.testing.expectEqual(@as(f32, 6.0), v.x);
     try std.testing.expectEqual(@as(f32, 7.0), v.y);
     try std.testing.expectEqual(@as(f32, 8.0), v.z);
-    
+
     v.subScalarMut(2.0);
     try std.testing.expectEqual(@as(f32, 4.0), v.x);
     try std.testing.expectEqual(@as(f32, 5.0), v.y);
     try std.testing.expectEqual(@as(f32, 6.0), v.z);
-    
+
     v.mulScalarMut(2.0);
     try std.testing.expectEqual(@as(f32, 8.0), v.x);
     try std.testing.expectEqual(@as(f32, 10.0), v.y);
     try std.testing.expectEqual(@as(f32, 12.0), v.z);
-    
+
     v.divScalarMut(4.0);
     try std.testing.expectEqual(@as(f32, 2.0), v.x);
     try std.testing.expectEqual(@as(f32, 2.5), v.y);

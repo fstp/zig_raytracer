@@ -40,6 +40,26 @@ const HitRecord = struct {
     p: Vec3,
     normal: Vec3,
     t: f32,
+    front_face: bool,
+
+    pub inline fn init(t: f32, p: Vec3, normal: Vec3, ray: Ray) HitRecord {
+        // NOTE: Outward normal is assumed to have unit length.
+        const front_face = ray.dir.dot(normal) < 0;
+
+        return HitRecord{
+            .t = t,
+            .p = p,
+            .normal = if (front_face) normal else normal.neg(),
+            .front_face = front_face,
+        };
+    }
+
+    pub inline fn debug_print(self: HitRecord) void {
+        std.debug.print(
+            "p.x={d}, p.y={d}, p.z={d}, n.x={d}, n.y={d}, n.z={d}, front_face={}\n",
+            .{ self.p.x, self.p.y, self.p.z, self.normal.x, self.normal.y, self.normal.z, self.front_face },
+        );
+    }
 };
 
 const Sphere = struct {
@@ -50,8 +70,8 @@ const Sphere = struct {
         const oc = self.center.sub(ray.origin);
         const a = ray.dir.lengthSq();
         const h = ray.dir.dot(oc);
-        const c = oc.lengthSq() - self.radius*self.radius;
-        const discriminant = h*h - a*c;
+        const c = oc.lengthSq() - self.radius * self.radius;
+        const discriminant = h * h - a * c;
 
         if (discriminant < 0)
             return null;
@@ -69,43 +89,28 @@ const Sphere = struct {
         }
 
         const p = ray.at(root);
+        const normal = p.sub(self.center).divScalar(self.radius);
 
-        return HitRecord {
-            .t = root,
-            .p = p,
-            .normal = p.sub(self.center).divScalar(self.radius),
-        };
+        return HitRecord.init(root, p, normal, ray);
     }
 };
 
-// We are utilizing a trick where 'b' in the quadratic equation (to find roots)
-// is substituted for '-2h'. That enables us to factor out some parts and simplify
-// the calculation of both b and the discriminant.
-fn hit_sphere(center: Vec3, radius: f32, ray: Ray) f32 {
-    const oc = center.sub(ray.origin);
-    const a = ray.dir.lengthSq();
-    const h = ray.dir.dot(oc);
-    const c = oc.lengthSq() - radius*radius;
-    const discriminant = h*h - a*c;
-
-    // Discriminant -> 0  => No roots, no intersection
-    //              -> 1  => Exactly one intersection
-    //              -> >1 => One or more intersections (passing through the sphere)
-    if (discriminant < 0) {
-        return -1.0;
-    } else {
-        return (h - @sqrt(discriminant)) / a; // Root
-    }
-}
-
 fn ray_color(ray: Ray) Color {
-    const sphere = Sphere {
-        .radius = 0.5,
-        .center = Vec3.init(0, 0, -1),
+    const spheres = [_]Sphere{
+        .{ .center = Vec3.init(0, 0, -1), .radius = 0.5 },
     };
 
+    var closest_so_far = math.inf(f32);
+    var hit_record: ?HitRecord = null;
+
     // Sphere - Color according to normal (x=red, y=green, z=blue)
-    if (sphere.hit(ray, 0, math.inf(f32))) |hr| {
+    for (spheres) |s| {
+        if (s.hit(ray, 0, closest_so_far)) |hr| {
+            closest_so_far = hr.t;
+            hit_record = hr;
+        }
+    }
+    if (hit_record) |hr| {
         return Color.from_vec(hr.normal.addScalar(1).mulScalar(0.5));
     }
 
@@ -114,6 +119,7 @@ fn ray_color(ray: Ray) Color {
     const a = 0.5 * (unit_direction.y + 1.0);
     const c1 = Color.init(1.0, 1.0, 1.0).v.mulScalar(1.0 - a);
     const c2 = Color.init(0.5, 0.7, 1.0).v.mulScalar(a);
+
     return Color.from_vec(c1.add(c2));
 }
 
