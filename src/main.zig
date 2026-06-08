@@ -1,6 +1,7 @@
 const vec = @import("vec");
 const std = @import("std");
 const math = std.math;
+const random = std.Random;
 
 const Io = std.Io;
 const Vec3 = vec.Vec3;
@@ -58,6 +59,10 @@ const Color = extern union {
 
     pub inline fn from_vec(v: Vec3) Color {
         return .{ .v = v };
+    }
+
+    pub inline fn add(self: Color, c: Color) Color {
+        return .{ .v = self.v.add(c.v) };
     }
 };
 
@@ -153,9 +158,9 @@ fn ray_color(ray: Ray) Color {
 }
 
 fn write_color(writer: *Io.Writer, color: Color) !void {
-    const ir = @trunc(255.999 * color.channels.r);
-    const ig = @trunc(255.999 * color.channels.g);
-    const ib = @trunc(255.999 * color.channels.b);
+    const ir = @trunc(256 * math.clamp(color.channels.r, 0, 0.999));
+    const ig = @trunc(256 * math.clamp(color.channels.g, 0, 0.999));
+    const ib = @trunc(256 * math.clamp(color.channels.b, 0, 0.999));
     try writer.print("{d} {d} {d}\n", .{ ir, ig, ib });
 }
 
@@ -189,7 +194,7 @@ pub fn main(init: std.process.Init) !void {
             .sub(viewport_u.divScalar(2))
             .sub(viewport_v.divScalar(2));
 
-    var pixel00_loc =
+    const pixel00_loc =
         viewport_upper_left
             .add(pixel_delta_u.add(pixel_delta_v).mulScalar(0.5));
 
@@ -203,23 +208,34 @@ pub fn main(init: std.process.Init) !void {
     // std.debug.print("{d}\n", .{math.degreesToRadians(180)});
     // std.debug.print("{d}\n", .{math.pi});
 
+    const samples_per_pixel = 20;
+    const pixel_samples_scale = 1.0 / @as(f32, samples_per_pixel);
+    var prng = random.DefaultPrng.init(1337);
+    const rand = prng.random();
+
     // Image
     for (0..image_height) |j| {
         // std.debug.print("\rScanlines remaining: {d}\n", .{(image_height - j)});
         for (0..image_width) |i| {
-            const pixel_center =
-                pixel00_loc
-                    .add(pixel_delta_u.mulScalar(@floatFromInt(i)))
-                    .add(pixel_delta_v.mulScalar(@floatFromInt(j)));
+            var pixel_color = Color.init(0, 0, 0);
+            for (0..samples_per_pixel) |_| {
+                // Vector of a random point in the [-.5, -.5] - [+.5, +.5] unit square
+                const offset = Vec3.init(
+                    random.float(rand, f32) - 0.5,
+                    random.float(rand, f32) - 0.5,
+                    0,
+                );
+                const offset_i: f32 = @floatFromInt(i);
+                const offset_j: f32 = @floatFromInt(j);
+                const pixel_sample = pixel00_loc
+                    .add(pixel_delta_u.mulScalar(offset_i + offset.x))
+                    .add(pixel_delta_v.mulScalar(offset_j + offset.y));
 
-            const ray: Ray = .{
-                .origin = camera_center,
-                .dir = pixel_center.sub(camera_center),
-            };
-
-            const color = ray_color(ray);
-
-            try write_color(stdout_writer, color);
+                const r = Ray{ .origin = Vec3.init(0, 0, 0), .dir = pixel_sample };
+                pixel_color = pixel_color.add(ray_color(r));
+            }
+            pixel_color.v.mulScalarMut(pixel_samples_scale);
+            try write_color(stdout_writer, pixel_color);
         }
     }
 
