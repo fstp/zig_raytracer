@@ -14,6 +14,31 @@ const Ray = struct {
     }
 };
 
+const Interval = struct {
+    min: f32,
+    max: f32,
+
+    pub inline fn init(min: f32, max: f32) Interval {
+        return .{ .min = min, .max = max };
+    }
+    pub inline fn empty() Interval {
+        return .{ .min = math.floatMax(f32), .max = -math.floatMax(f32) };
+    }
+    pub inline fn all() Interval {
+        return .{ .min = -math.floatMax(f32), .max = math.floatMax(f32) };
+    }
+
+    pub inline fn size(self: Interval) f32 {
+        return self.max - self.min;
+    }
+    pub inline fn contains(self: Interval, point: f32) bool {
+        return self.min <= point and point <= self.max;
+    }
+    pub inline fn surrounds(self: Interval, point: f32) bool {
+        return self.min < point and point < self.max;
+    }
+};
+
 /// A simple RGB color.
 /// Using `extern union` guarantees standard C-ABI layout and it contains
 /// a Vec3 (v) field that is shared in memory with the channels to permit
@@ -66,7 +91,7 @@ const Sphere = struct {
     center: Vec3,
     radius: f32,
 
-    pub fn hit(self: Sphere, ray: Ray, ray_tmin: f32, ray_tmax: f32) ?HitRecord {
+    pub fn hit(self: Sphere, ray: Ray, interval: Interval) ?HitRecord {
         const oc = self.center.sub(ray.origin);
         const a = ray.dir.lengthSq();
         const h = ray.dir.dot(oc);
@@ -79,10 +104,12 @@ const Sphere = struct {
         const sqrtd = @sqrt(discriminant);
 
         var root = (h - sqrtd) / a;
-        if (root <= ray_tmin or ray_tmax <= root) {
+        // if (root <= ray_tmin or ray_tmax <= root) {
+        if (!interval.surrounds(root)) {
             // Maybe the other root is within limits
             root = (h + sqrtd) / a;
-            if (root <= ray_tmin or ray_tmax <= root) {
+            // if (root <= ray_tmin or ray_tmax <= root) {
+            if (!interval.surrounds(root)) {
                 // Nope, no intersection
                 return null;
             }
@@ -98,15 +125,17 @@ const Sphere = struct {
 fn ray_color(ray: Ray) Color {
     const spheres = [_]Sphere{
         .{ .center = Vec3.init(0, 0, -1), .radius = 0.5 },
+        .{ .center = Vec3.init(0, -100.5, -1), .radius = 100 },
     };
 
-    var closest_so_far = math.inf(f32);
+    // var closest_so_far = math.inf(f32);
     var hit_record: ?HitRecord = null;
+    var interval = Interval.init(0, math.inf(f32));
 
     // Sphere - Color according to normal (x=red, y=green, z=blue)
     for (spheres) |s| {
-        if (s.hit(ray, 0, closest_so_far)) |hr| {
-            closest_so_far = hr.t;
+        if (s.hit(ray, interval)) |hr| {
+            interval.max = hr.t;
             hit_record = hr;
         }
     }
@@ -166,6 +195,13 @@ pub fn main(init: std.process.Init) !void {
 
     // Header
     try stdout_writer.print("P3\n{d} {d}\n255\n", .{ image_width, image_height });
+
+    // const interval = Interval.empty();
+
+    // std.debug.print("min={d}    max={d}\n", .{interval.min, interval.max});
+    // std.debug.print("{}\n", .{interval.contains(1.0)});
+    // std.debug.print("{d}\n", .{math.degreesToRadians(180)});
+    // std.debug.print("{d}\n", .{math.pi});
 
     // Image
     for (0..image_height) |j| {
