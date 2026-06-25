@@ -6,7 +6,7 @@ const random = std.Random;
 const Io = std.Io;
 const Vec3 = vec.Vec3;
 
-const max_bounces = 10;
+const max_bounces = 50;
 
 const Ray = struct {
     origin: Vec3,
@@ -139,11 +139,10 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
         .{ .center = Vec3.init(0, -100.5, -1), .radius = 100 },
     };
 
-    // var closest_so_far = math.inf(f32);
     var hit_record: ?HitRecord = null;
-    var interval = Interval.init(0, math.inf(f32));
+    var interval = Interval.init(0.001, math.inf(f32));
 
-    // Sphere - Color according to normal (x=red, y=green, z=blue)
+    // TODO: Only checking spheres for now
     for (spheres) |s| {
         if (s.hit(ray, interval)) |hr| {
             interval.max = hr.t;
@@ -152,10 +151,10 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
     }
 
     if (hit_record) |hr| {
-        const direction = Vec3.random_on_hemisphere(rand, hr.normal);
+        const reflectance = 0.5;
+        const direction = Vec3.random_unit_vector(rand).add(hr.normal);
         const new_ray = Ray{ .origin = hr.p, .dir = direction };
-        // return Color.from_vec(hr.normal.addScalar(1).mulScalar(0.5));
-        return Color.from_vec(ray_color(rand, new_ray, bounce + 1).v.mulScalar(0.5));
+        return Color.from_vec(ray_color(rand, new_ray, bounce + 1).v.mulScalar(reflectance));
     }
 
     // Sky - lerp between white and blue depending on y-direction
@@ -167,10 +166,21 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
     return Color.from_vec(c1.add(c2));
 }
 
-fn write_color(writer: *Io.Writer, color: Color) !void {
-    const ir = @trunc(256 * math.clamp(color.channels.r, 0, 0.999));
-    const ig = @trunc(256 * math.clamp(color.channels.g, 0, 0.999));
-    const ib = @trunc(256 * math.clamp(color.channels.b, 0, 0.999));
+inline fn linear_to_gamma(linear_component: f32) f32 {
+    if (linear_component > 0) {
+        return math.sqrt(linear_component);
+    } else {
+        return 0;
+    }
+}
+
+inline fn write_color(writer: *Io.Writer, color: Color) !void {
+    const r = linear_to_gamma(color.channels.r);
+    const g = linear_to_gamma(color.channels.g);
+    const b = linear_to_gamma(color.channels.b);
+    const ir = @trunc(256 * math.clamp(r, 0, 0.999));
+    const ig = @trunc(256 * math.clamp(g, 0, 0.999));
+    const ib = @trunc(256 * math.clamp(b, 0, 0.999));
     try writer.print("{d} {d} {d}\n", .{ ir, ig, ib });
 }
 
@@ -181,7 +191,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Image
     const aspect_ratio = 16.0 / 9.0;
-    const image_width = 400;
+    const image_width = 800;
     const image_height = @max(1, @as(u32, @trunc(@as(f32, image_width) / aspect_ratio)));
 
     // Camera
