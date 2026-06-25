@@ -6,6 +6,8 @@ const random = std.Random;
 const Io = std.Io;
 const Vec3 = vec.Vec3;
 
+const max_bounces = 10;
+
 const Ray = struct {
     origin: Vec3,
     dir: Vec3,
@@ -127,7 +129,11 @@ const Sphere = struct {
     }
 };
 
-fn ray_color(ray: Ray) Color {
+fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
+    if (bounce > max_bounces) {
+        return Color.init(0, 0, 0);
+    }
+
     const spheres = [_]Sphere{
         .{ .center = Vec3.init(0, 0, -1), .radius = 0.5 },
         .{ .center = Vec3.init(0, -100.5, -1), .radius = 100 },
@@ -144,8 +150,12 @@ fn ray_color(ray: Ray) Color {
             hit_record = hr;
         }
     }
+
     if (hit_record) |hr| {
-        return Color.from_vec(hr.normal.addScalar(1).mulScalar(0.5));
+        const direction = Vec3.random_on_hemisphere(rand, hr.normal);
+        const new_ray = Ray{ .origin = hr.p, .dir = direction };
+        // return Color.from_vec(hr.normal.addScalar(1).mulScalar(0.5));
+        return Color.from_vec(ray_color(rand, new_ray, bounce + 1).v.mulScalar(0.5));
     }
 
     // Sky - lerp between white and blue depending on y-direction
@@ -210,8 +220,12 @@ pub fn main(init: std.process.Init) !void {
 
     const samples_per_pixel = 20;
     const pixel_samples_scale = 1.0 / @as(f32, samples_per_pixel);
-    var prng = random.DefaultPrng.init(1337);
+    var prng = random.DefaultPrng.init(@intCast(Io.Clock.real.now(init.io).nanoseconds));
     const rand = prng.random();
+
+    // for (0..10) |_| {
+    //     std.debug.print("{d}, {d}, {d}\n", Vec3.random_unit_vector(rand));
+    // }
 
     // Image
     for (0..image_height) |j| {
@@ -232,7 +246,7 @@ pub fn main(init: std.process.Init) !void {
                     .add(pixel_delta_v.mulScalar(offset_j + offset.y));
 
                 const r = Ray{ .origin = Vec3.init(0, 0, 0), .dir = pixel_sample };
-                pixel_color = pixel_color.add(ray_color(r));
+                pixel_color = pixel_color.add(ray_color(rand, r, 0));
             }
             pixel_color.v.mulScalarMut(pixel_samples_scale);
             try write_color(stdout_writer, pixel_color);

@@ -5,7 +5,7 @@ view: image.ppm
 
 all: image.ppm
 
-image.ppm: src/main.zig
+image.ppm: src/main.zig src/vec.zig
 	zig build run >image.ppm
 
 clean:

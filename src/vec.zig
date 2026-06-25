@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = std.math;
 
 /// An efficient 3D Vector struct.
 /// Using `extern struct` guarantees standard C-ABI layout (contiguous in memory, no padding),
@@ -17,6 +18,33 @@ pub const Vec3 = extern struct {
 
     pub inline fn unit_vector(v: Vec3) Vec3 {
         return v.divScalar(v.length());
+    }
+
+    pub inline fn random(rand: std.Random) Vec3 {
+        return .{
+            .x = rand.float(f32),
+            .y = rand.float(f32),
+            .z = rand.float(f32),
+        };
+    }
+
+    pub inline fn random_unit_vector(rand: std.Random) Vec3 {
+        while (true) {
+            const p = random(rand);
+            const lsq = p.lengthSq();
+            if (1e-21 < lsq and lsq <= 1) {
+                return p.divScalar(math.sqrt(lsq));
+            }
+        }
+    }
+
+    pub inline fn random_on_hemisphere(rand: std.Random, normal: Vec3) Vec3 {
+        const on_unit_sphere = random_unit_vector(rand);
+        if (on_unit_sphere.dot(normal) > 0) {
+            return on_unit_sphere;
+        } else {
+            return on_unit_sphere.neg();
+        }
     }
 
     // --- Array Access Helpers ---
