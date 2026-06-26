@@ -5,7 +5,7 @@ const math = std.math;
 const Io = std.Io;
 const Vec3 = vec.Vec3;
 
-const max_bounces = 50;
+const max_bounces = 200;
 
 const Ray = struct {
     origin: Vec3,
@@ -150,7 +150,6 @@ const Material = union(enum) {
     metal: Metal,
 
     pub fn scatter(self: Material, rand: std.Random, ray: Ray, hr: HitRecord) ?ScatterResult {
-        _ = ray;
         switch (self) {
             .lambertian => |l| {
                 var scatter_dir = hr.normal.add(Vec3.random_unit_vector(rand));
@@ -166,8 +165,21 @@ const Material = union(enum) {
                 };
             },
             .metal => |m| {
-                _ = m;
-                return null;
+                const reflected = ray.dir.reflect(hr.normal);
+                const fuzz_sphere = Vec3.random_unit_vector(rand).mulScalar(@min(m.fuzz, 1.0));
+                const scatter_dir = reflected.add(fuzz_sphere);
+                if (scatter_dir.dot(hr.normal) > 0) {
+                    return ScatterResult{
+                        .attenuation = m.albedo,
+                        .scattered = Ray{
+                            .origin = hr.p,
+                            .dir = scatter_dir,
+                        },
+                    };
+                } else {
+                    // Reflection absorbed (scattered inside the material)
+                    return null;
+                }
             },
         }
     }
@@ -185,6 +197,16 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
             .material = .{
                 .lambertian = .{
                     .albedo = Vec3.init(0.1, 0.2, 0.5),
+                },
+            },
+        },
+        .{
+            .center = Vec3.init(-1.0, 0, -1.0),
+            .radius = 0.5,
+            .material = .{
+                .metal = .{
+                    .albedo = Vec3.init(0.3, 0.3, 0.3),
+                    .fuzz = 0.3,
                 },
             },
         },
@@ -263,7 +285,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Camera
     const focal_length = 1.0;
-    const camera_center = Vec3.init(0, 0, 0);
+    const camera_center = Vec3.init(-0.5, 0, 0.5);
 
     // Viewport
     const viewport_height = 2.0;
@@ -322,7 +344,8 @@ pub fn main(init: std.process.Init) !void {
                     .add(pixel_delta_u.mulScalar(offset_i + offset.x))
                     .add(pixel_delta_v.mulScalar(offset_j + offset.y));
 
-                const r = Ray{ .origin = Vec3.init(0, 0, 0), .dir = pixel_sample };
+                const ray_direction = pixel_sample.sub(camera_center);
+                const r = Ray{ .origin = camera_center, .dir = ray_direction };
                 pixel_color = pixel_color.add(ray_color(rand, r, 0));
             }
             pixel_color.v.mulScalarMut(pixel_samples_scale);

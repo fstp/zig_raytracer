@@ -187,6 +187,11 @@ pub const Vec3 = extern struct {
             .z = -self.z,
         };
     }
+
+    pub inline fn reflect(self: Self, normal: Vec3) Self {
+        // Normal is assumed to be unit length
+        return self.sub(normal.mulScalar(2*dot(self, normal)));
+    }
 };
 
 // --- Tests ---
