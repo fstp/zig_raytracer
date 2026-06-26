@@ -5,7 +5,50 @@ const math = std.math;
 const Io = std.Io;
 const Vec3 = vec.Vec3;
 
-const max_bounces = 200;
+// # Image
+// Params
+const aspect_ratio: f32 = 16.0 / 9.0;
+const image_width: u32 = 600;
+// Constants
+const image_height: u32 = @max(1, @as(u32, @trunc(@as(f32, image_width) / aspect_ratio)));
+// #
+
+// # Quality
+// Params
+const samples_per_pixel: u32 = 100;
+const max_bounces: u32 = 50;
+// Constants
+const pixel_samples_scale: f32 = 1.0 / @as(f32, @floatFromInt(samples_per_pixel));
+// #
+
+// # Camera
+// Params
+const camera_center = Vec3.init(0.0, 0, 0.3);
+const focal_length = 1.0;
+// #
+
+// # Viewport
+// Params
+const viewport_height = 2.0;
+// Constants
+const viewport_width = viewport_height * (@as(f32, image_width) / image_height);
+
+const viewport_u = Vec3.init(viewport_width, 0, 0);
+const viewport_v = Vec3.init(0, -viewport_height, 0);
+
+const pixel_delta_u = viewport_u.divScalar(image_width);
+const pixel_delta_v = viewport_v.divScalar(image_height);
+
+const viewport_upper_left =
+    camera_center
+        .sub(Vec3.init(0, 0, focal_length))
+        .sub(viewport_u.divScalar(2))
+        .sub(viewport_v.divScalar(2));
+
+const pixel00_loc =
+    viewport_upper_left
+        .add(pixel_delta_u.add(pixel_delta_v).mulScalar(0.5));
+// #
 
 const Ray = struct {
     origin: Vec3,
@@ -113,11 +156,9 @@ const Sphere = struct {
         const sqrtd = @sqrt(discriminant);
 
         var root = (h - sqrtd) / a;
-        // if (root <= ray_tmin or ray_tmax <= root) {
         if (!interval.surrounds(root)) {
             // Maybe the other root is within limits
             root = (h + sqrtd) / a;
-            // if (root <= ray_tmin or ray_tmax <= root) {
             if (!interval.surrounds(root)) {
                 // Nope, no intersection
                 return null;
@@ -185,6 +226,14 @@ const Material = union(enum) {
     }
 };
 
+inline fn rgb_to_albedo(comptime r: f32, comptime g: f32, comptime b: f32) Vec3 {
+    const r_norm = r / 255.0;
+    const g_norm = g / 255.0;
+    const b_norm = b / 255.0;
+
+    return Vec3.init(r_norm * r_norm, g_norm * g_norm, b_norm * b_norm);
+}
+
 fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
     if (bounce > max_bounces) {
         return Color.init(0, 0, 0);
@@ -192,7 +241,8 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
 
     const spheres = [_]Sphere{
         .{
-            .center = Vec3.init(0, 0, -1),
+            // Center
+            .center = Vec3.init(0, 0, -1.2),
             .radius = 0.5,
             .material = .{
                 .lambertian = .{
@@ -201,16 +251,29 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
             },
         },
         .{
+            // Left
             .center = Vec3.init(-1.0, 0, -1.0),
             .radius = 0.5,
             .material = .{
                 .metal = .{
-                    .albedo = Vec3.init(0.3, 0.3, 0.3),
+                    .albedo = Vec3.init(0.8, 0.8, 0.8),
                     .fuzz = 0.3,
                 },
             },
         },
         .{
+            // Right
+            .center = Vec3.init(1.0, 0, -1.0),
+            .radius = 0.5,
+            .material = .{
+                .metal = .{
+                    .albedo = Vec3.init(0.8, 0.6, 0.2),
+                    .fuzz = 1.0,
+                },
+            },
+        },
+        .{
+            // Ground
             .center = Vec3.init(0, -100.5, -1),
             .radius = 100,
             .material = .{
@@ -240,10 +303,6 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
             // Ray fully absorbed
             return Color.init(0, 0, 0);
         }
-        // const reflectance = 0.5;
-        // const direction = Vec3.random_unit_vector(rand).add(hr.normal);
-        // const new_ray = Ray{ .origin = hr.p, .dir = direction };
-        // return Color.from_vec(ray_color(rand, new_ray, bounce + 1).v.mulScalar(reflectance));
     }
 
     // Sky - lerp between white and blue depending on y-direction
@@ -273,84 +332,65 @@ inline fn write_color(writer: *Io.Writer, color: Color) !void {
     try writer.print("{d} {d} {d}\n", .{ ir, ig, ib });
 }
 
+fn render_row(
+    timestamp: u64, // For random
+    j: usize, // The current row (y-coordinate)
+    framebuffer: []Color, // Shared memory buffer
+) void {
+    var prng = std.Random.DefaultPrng.init(timestamp + j);
+    const rand = prng.random();
+
+    for (0..image_width) |i| {
+        var pixel_color = Color.init(0, 0, 0);
+
+        for (0..samples_per_pixel) |_| {
+            const offset = Vec3.init(
+                std.Random.float(rand, f32) - 0.5,
+                std.Random.float(rand, f32) - 0.5,
+                0,
+            );
+
+            const offset_i: f32 = @floatFromInt(i);
+            const offset_j: f32 = @floatFromInt(j);
+
+            const pixel_sample = pixel00_loc
+                .add(pixel_delta_u.mulScalar(offset_i + offset.x))
+                .add(pixel_delta_v.mulScalar(offset_j + offset.y));
+
+            const ray_direction = pixel_sample.sub(camera_center);
+            const r = Ray{ .origin = camera_center, .dir = ray_direction };
+
+            pixel_color = pixel_color.add(ray_color(rand, r, 0));
+        }
+
+        pixel_color.v.mulScalarMut(pixel_samples_scale);
+        framebuffer[j * image_width + i] = pixel_color;
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_file_writer: Io.File.Writer = .init(.stdout(), init.io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
 
-    // Image
-    const aspect_ratio = 16.0 / 9.0;
-    const image_width = 600;
-    const image_height = @max(1, @as(u32, @trunc(@as(f32, image_width) / aspect_ratio)));
+    var allocator = std.heap.page_allocator;
+    const framebuffer = try allocator.alloc(Color, image_width * image_height);
+    defer allocator.free(framebuffer);
 
-    // Camera
-    const focal_length = 1.0;
-    const camera_center = Vec3.init(-0.5, 0, 0.5);
+    var group: std.Io.Group = .init;
+    defer group.cancel(init.io);
 
-    // Viewport
-    const viewport_height = 2.0;
-    const viewport_width = viewport_height * (@as(f32, image_width) / image_height);
+    for (0..image_height) |j| {
+        const timestamp: u64 = @intCast(Io.Clock.real.now(init.io).nanoseconds);
+        group.async(init.io, render_row, .{ timestamp, j, framebuffer });
+    }
 
-    const viewport_u = Vec3.init(viewport_width, 0, 0);
-    const viewport_v = Vec3.init(0, -viewport_height, 0);
+    group.await(init.io) catch {};
 
-    const pixel_delta_u = viewport_u.divScalar(image_width);
-    const pixel_delta_v = viewport_v.divScalar(image_height);
-
-    const viewport_upper_left =
-        camera_center
-            .sub(Vec3.init(0, 0, focal_length))
-            .sub(viewport_u.divScalar(2))
-            .sub(viewport_v.divScalar(2));
-
-    const pixel00_loc =
-        viewport_upper_left
-            .add(pixel_delta_u.add(pixel_delta_v).mulScalar(0.5));
-
-    // Header
     try stdout_writer.print("P3\n{d} {d}\n255\n", .{ image_width, image_height });
 
-    // const interval = Interval.empty();
-
-    // std.debug.print("min={d}    max={d}\n", .{interval.min, interval.max});
-    // std.debug.print("{}\n", .{interval.contains(1.0)});
-    // std.debug.print("{d}\n", .{math.degreesToRadians(180)});
-    // std.debug.print("{d}\n", .{math.pi});
-
-    const samples_per_pixel = 20;
-    const pixel_samples_scale = 1.0 / @as(f32, samples_per_pixel);
-    var prng = std.Random.DefaultPrng.init(@intCast(Io.Clock.real.now(init.io).nanoseconds));
-    const rand = prng.random();
-
-    // for (0..10) |_| {
-    //     std.debug.print("{d}, {d}, {d}\n", Vec3.random_unit_vector(rand));
-    // }
-
-    // Image
-    for (0..image_height) |j| {
-        // std.debug.print("\rScanlines remaining: {d}\n", .{(image_height - j)});
-        for (0..image_width) |i| {
-            var pixel_color = Color.init(0, 0, 0);
-            for (0..samples_per_pixel) |_| {
-                // Vector of a random point in the [-.5, -.5] - [+.5, +.5] unit square
-                const offset = Vec3.init(
-                    std.Random.float(rand, f32) - 0.5,
-                    std.Random.float(rand, f32) - 0.5,
-                    0,
-                );
-                const offset_i: f32 = @floatFromInt(i);
-                const offset_j: f32 = @floatFromInt(j);
-                const pixel_sample = pixel00_loc
-                    .add(pixel_delta_u.mulScalar(offset_i + offset.x))
-                    .add(pixel_delta_v.mulScalar(offset_j + offset.y));
-
-                const ray_direction = pixel_sample.sub(camera_center);
-                const r = Ray{ .origin = camera_center, .dir = ray_direction };
-                pixel_color = pixel_color.add(ray_color(rand, r, 0));
-            }
-            pixel_color.v.mulScalarMut(pixel_samples_scale);
-            try write_color(stdout_writer, pixel_color);
-        }
+    for (framebuffer) |pixel| {
+        try write_color(stdout_writer, pixel);
     }
 
     try stdout_writer.flush();
