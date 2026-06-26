@@ -1,7 +1,6 @@
 const vec = @import("vec");
 const std = @import("std");
 const math = std.math;
-const random = std.Random;
 
 const Io = std.Io;
 const Vec3 = vec.Vec3;
@@ -73,8 +72,9 @@ const HitRecord = struct {
     normal: Vec3,
     t: f32,
     front_face: bool,
+    material: Material,
 
-    pub inline fn init(t: f32, p: Vec3, normal: Vec3, ray: Ray) HitRecord {
+    pub inline fn init(t: f32, p: Vec3, normal: Vec3, ray: Ray, material: Material) HitRecord {
         // NOTE: Outward normal is assumed to have unit length.
         const front_face = ray.dir.dot(normal) < 0;
 
@@ -83,6 +83,7 @@ const HitRecord = struct {
             .p = p,
             .normal = if (front_face) normal else normal.neg(),
             .front_face = front_face,
+            .material = material,
         };
     }
 
@@ -97,6 +98,7 @@ const HitRecord = struct {
 const Sphere = struct {
     center: Vec3,
     radius: f32,
+    material: Material,
 
     pub fn hit(self: Sphere, ray: Ray, interval: Interval) ?HitRecord {
         const oc = self.center.sub(ray.origin);
@@ -125,7 +127,49 @@ const Sphere = struct {
         const p = ray.at(root);
         const normal = p.sub(self.center).divScalar(self.radius);
 
-        return HitRecord.init(root, p, normal, ray);
+        return HitRecord.init(root, p, normal, ray, self.material);
+    }
+};
+
+const Lambertian = struct {
+    albedo: Vec3,
+};
+
+const Metal = struct {
+    albedo: Vec3,
+    fuzz: f32,
+};
+
+const ScatterResult = struct {
+    attenuation: Vec3,
+    scattered: Ray,
+};
+
+const Material = union(enum) {
+    lambertian: Lambertian,
+    metal: Metal,
+
+    pub fn scatter(self: Material, rand: std.Random, ray: Ray, hr: HitRecord) ?ScatterResult {
+        _ = ray;
+        switch (self) {
+            .lambertian => |l| {
+                var scatter_dir = hr.normal.add(Vec3.random_unit_vector(rand));
+                if (scatter_dir.near_zero()) {
+                    scatter_dir = hr.normal;
+                }
+                return ScatterResult{
+                    .attenuation = l.albedo,
+                    .scattered = Ray{
+                        .origin = hr.p,
+                        .dir = scatter_dir,
+                    },
+                };
+            },
+            .metal => |m| {
+                _ = m;
+                return null;
+            },
+        }
     }
 };
 
@@ -135,8 +179,24 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
     }
 
     const spheres = [_]Sphere{
-        .{ .center = Vec3.init(0, 0, -1), .radius = 0.5 },
-        .{ .center = Vec3.init(0, -100.5, -1), .radius = 100 },
+        .{
+            .center = Vec3.init(0, 0, -1),
+            .radius = 0.5,
+            .material = .{
+                .lambertian = .{
+                    .albedo = Vec3.init(0.1, 0.2, 0.5),
+                },
+            },
+        },
+        .{
+            .center = Vec3.init(0, -100.5, -1),
+            .radius = 100,
+            .material = .{
+                .lambertian = .{
+                    .albedo = Vec3.init(0.8, 0.8, 0.0),
+                },
+            },
+        },
     };
 
     var hit_record: ?HitRecord = null;
@@ -151,10 +211,17 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
     }
 
     if (hit_record) |hr| {
-        const reflectance = 0.5;
-        const direction = Vec3.random_unit_vector(rand).add(hr.normal);
-        const new_ray = Ray{ .origin = hr.p, .dir = direction };
-        return Color.from_vec(ray_color(rand, new_ray, bounce + 1).v.mulScalar(reflectance));
+        if (hr.material.scatter(rand, ray, hr)) |result| {
+            const final_vec = ray_color(rand, result.scattered, bounce + 1).v.mul(result.attenuation);
+            return Color.from_vec(final_vec);
+        } else {
+            // Ray fully absorbed
+            return Color.init(0, 0, 0);
+        }
+        // const reflectance = 0.5;
+        // const direction = Vec3.random_unit_vector(rand).add(hr.normal);
+        // const new_ray = Ray{ .origin = hr.p, .dir = direction };
+        // return Color.from_vec(ray_color(rand, new_ray, bounce + 1).v.mulScalar(reflectance));
     }
 
     // Sky - lerp between white and blue depending on y-direction
@@ -191,7 +258,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Image
     const aspect_ratio = 16.0 / 9.0;
-    const image_width = 800;
+    const image_width = 600;
     const image_height = @max(1, @as(u32, @trunc(@as(f32, image_width) / aspect_ratio)));
 
     // Camera
@@ -230,7 +297,7 @@ pub fn main(init: std.process.Init) !void {
 
     const samples_per_pixel = 20;
     const pixel_samples_scale = 1.0 / @as(f32, samples_per_pixel);
-    var prng = random.DefaultPrng.init(@intCast(Io.Clock.real.now(init.io).nanoseconds));
+    var prng = std.Random.DefaultPrng.init(@intCast(Io.Clock.real.now(init.io).nanoseconds));
     const rand = prng.random();
 
     // for (0..10) |_| {
@@ -245,8 +312,8 @@ pub fn main(init: std.process.Init) !void {
             for (0..samples_per_pixel) |_| {
                 // Vector of a random point in the [-.5, -.5] - [+.5, +.5] unit square
                 const offset = Vec3.init(
-                    random.float(rand, f32) - 0.5,
-                    random.float(rand, f32) - 0.5,
+                    std.Random.float(rand, f32) - 0.5,
+                    std.Random.float(rand, f32) - 0.5,
                     0,
                 );
                 const offset_i: f32 = @floatFromInt(i);

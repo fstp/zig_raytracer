@@ -47,6 +47,10 @@ pub const Vec3 = extern struct {
         }
     }
 
+    pub inline fn near_zero(self: Vec3) bool {
+        return @abs(self.x) < 1e-7 and @abs(self.y) < 1e-7 and @abs(self.z) < 1e-7;
+    }
+
     // --- Array Access Helpers ---
 
     /// Cast safely to a constant array slice (useful for graphics APIs like OpenGL/Vulkan)
