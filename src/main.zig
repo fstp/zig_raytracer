@@ -15,8 +15,8 @@ const image_height: u32 = @max(1, @as(u32, @trunc(@as(f32, image_width) / aspect
 
 // # Quality
 // Params
-const samples_per_pixel: u32 = 100;
-const max_bounces: u32 = 50;
+const samples_per_pixel: u32 = 300;
+const max_bounces: u32 = 200;
 // Constants
 const pixel_samples_scale: f32 = 1.0 / @as(f32, @floatFromInt(samples_per_pixel));
 // #
@@ -186,9 +186,12 @@ const ScatterResult = struct {
     scattered: Ray,
 };
 
+const Dielectric = struct { refraction_index: f32 };
+
 const Material = union(enum) {
     lambertian: Lambertian,
     metal: Metal,
+    dielectric: Dielectric,
 
     pub fn scatter(self: Material, rand: std.Random, ray: Ray, hr: HitRecord) ?ScatterResult {
         switch (self) {
@@ -221,6 +224,18 @@ const Material = union(enum) {
                     // Reflection absorbed (scattered inside the material)
                     return null;
                 }
+            },
+            .dielectric => |d| {
+                const ri = if (hr.front_face) (1.0 / d.refraction_index) else d.refraction_index;
+                const unit_dir = Vec3.unit_vector(ray.dir);
+                const refracted = unit_dir.refract(hr.normal, ri);
+                return ScatterResult{
+                    .attenuation = Vec3.init(1.0, 1.0, 1.0),
+                    .scattered = Ray{
+                        .origin = hr.p,
+                        .dir = refracted,
+                    },
+                };
             },
         }
     }
@@ -255,10 +270,13 @@ fn ray_color(rand: std.Random, ray: Ray, bounce: u32) Color {
             .center = Vec3.init(-1.0, 0, -1.0),
             .radius = 0.5,
             .material = .{
-                .metal = .{
-                    .albedo = Vec3.init(0.8, 0.8, 0.8),
-                    .fuzz = 0.3,
+                .dielectric = .{
+                    .refraction_index = 1.5,
                 },
+                // .metal = .{
+                //     .albedo = Vec3.init(0.8, 0.8, 0.8),
+                //     .fuzz = 0.3,
+                // },
             },
         },
         .{

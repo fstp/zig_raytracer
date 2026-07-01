@@ -192,6 +192,13 @@ pub const Vec3 = extern struct {
         // Normal is assumed to be unit length
         return self.sub(normal.mulScalar(2*dot(self, normal)));
     }
+
+    pub inline fn refract(self: Self, normal: Vec3, etai_over_etat: f32) Self {
+        const cos_theta = @min(self.neg().dot(normal), 1.0);
+        const perpendicular = self.add(normal.mulScalar(cos_theta)).mulScalar(etai_over_etat);
+        const parallel = normal.mulScalar(-@sqrt(@abs(1.0 - perpendicular.lengthSq())));
+        return perpendicular.add(parallel);
+    }
 };
 
 // --- Tests ---
